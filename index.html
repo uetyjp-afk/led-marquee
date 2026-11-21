@@ -291,6 +291,7 @@
             <div class="seg-control" id="modeSeg">
               <button type="button" data-mode="scroll" class="on">横に流れる</button>
               <button type="button" data-mode="pause">真ん中で止まる</button>
+              <button type="button" data-mode="pattern">流れて・止まって・点滅</button>
               <button type="button" data-mode="blink">点滅</button>
               <button type="button" data-mode="static">止まって表示</button>
             </div>
@@ -460,7 +461,7 @@
         }
         seg("modeSeg", "data-mode", function (v) {
           state.mode = v;
-          document.getElementById("speedRow").style.display = (v === "scroll" || v === "pause") ? "" : "none";
+          document.getElementById("speedRow").style.display = (v === "scroll" || v === "pause" || v === "pattern") ? "" : "none";
           renderPreview();
         });
         seg("glowSeg", "data-glow", function (v) {
@@ -541,6 +542,29 @@
               if (s.x <= -s.segW) { s.x = s.contW; s.phase = "in"; }
             }
             s.track.style.transform = "translate3d(" + s.x.toFixed(1) + "px, 0, 0)";
+          } else if (s.mode === "pattern") {
+            var pcx = (s.contW - s.segW) / 2;
+            if (s.phase === "in") {
+              s.x -= pxPerSec() * dt;
+              if (s.x <= pcx) { s.x = pcx; s.phase = "hold"; s.holdT = 0; }
+              s.track.style.transform = "translate3d(" + s.x.toFixed(1) + "px, 0, 0)";
+            } else if (s.phase === "hold") {
+              s.holdT += dt;
+              if (s.holdT >= 1.2) { s.phase = "blink"; s.blinkT = 0; s.blinkCount = 0; s.visible = true; s.track.style.visibility = "visible"; }
+            } else if (s.phase === "blink") {
+              s.blinkT += dt;
+              if (s.blinkT >= 0.55) {
+                s.blinkT = 0;
+                s.blinkCount++;
+                s.visible = !s.visible;
+                s.track.style.visibility = s.visible ? "visible" : "hidden";
+                if (s.blinkCount >= 6) { s.visible = true; s.track.style.visibility = "visible"; s.phase = "out"; }
+              }
+            } else {
+              s.x -= pxPerSec() * dt;
+              if (s.x <= -s.segW) { s.x = s.contW; s.phase = "in"; }
+              s.track.style.transform = "translate3d(" + s.x.toFixed(1) + "px, 0, 0)";
+            }
           } else if (s.mode === "blink") {
             s.blinkT += dt;
             if (s.blinkT >= 0.55) {
@@ -569,6 +593,14 @@
           s.mode = "pause";
           s.segW = segW; s.contW = contW;
           s.phase = "in"; s.x = contW; s.holdT = 0;
+          s.active = true;
+          s.track.style.visibility = "visible";
+          s.track.style.transform = "translate3d(" + s.x.toFixed(1) + "px, 0, 0)";
+        }
+        function startPattern(s, segW, contW) {
+          s.mode = "pattern";
+          s.segW = segW; s.contW = contW;
+          s.phase = "in"; s.x = contW; s.holdT = 0; s.blinkT = 0; s.blinkCount = 0; s.visible = true;
           s.active = true;
           s.track.style.visibility = "visible";
           s.track.style.transform = "translate3d(" + s.x.toFixed(1) + "px, 0, 0)";
@@ -621,9 +653,10 @@
             if (state.mode === "blink") startBlink(previewScroll); else stopScroll(previewScroll);
             return;
           }
-          if (state.mode === "pause") {
+          if (state.mode === "pause" || state.mode === "pattern") {
             var segW = fillSingle(previewTrack, msg, 44);
-            startPause(previewScroll, segW, preview.clientWidth);
+            if (state.mode === "pause") startPause(previewScroll, segW, preview.clientWidth);
+            else startPattern(previewScroll, segW, preview.clientWidth);
             return;
           }
           var half = fillTrack(previewTrack, msg, preview.clientWidth, 44);
@@ -662,9 +695,10 @@
             if (state.mode === "blink") startBlink(stageScroll);
             return;
           }
-          if (state.mode === "pause") {
+          if (state.mode === "pause" || state.mode === "pattern") {
             var segW = fillSingle(stageTrack, msg, fontPxForStage());
-            startPause(stageScroll, segW, window.innerWidth);
+            if (state.mode === "pause") startPause(stageScroll, segW, window.innerWidth);
+            else startPattern(stageScroll, segW, window.innerWidth);
             return;
           }
           var half = fillTrack(stageTrack, msg, window.innerWidth, fontPxForStage());
