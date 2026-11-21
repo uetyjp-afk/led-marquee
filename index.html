@@ -619,18 +619,26 @@
           s.track.style.visibility = "visible";
           s.visible = true;
         }
-        /* one centered segment (pause / blink); returns its width */
-        function fillSingle(track, msg, fontPx) {
+        /* one segment (pause / pattern); if it overflows the container,
+           shrink the font so the whole text fits on screen when stopped */
+        function fillSingle(track, msg, fontPx, contW) {
           track.innerHTML = "";
           var seg = document.createElement("span");
           seg.className = "seg";
           seg.textContent = msg;
-          seg.style.fontSize = fontPx + "px";
           seg.style.paddingRight = "0";
           seg.style.color = state.fg;
           applyGlow(seg);
+          var cur = fontPx;
+          seg.style.fontSize = cur + "px";
           track.appendChild(seg);
-          return seg.getBoundingClientRect().width || fontPx * msg.length;
+          var w = seg.getBoundingClientRect().width || cur * msg.length;
+          if (contW && w > contW) {
+            cur = Math.max(10, Math.floor(cur * (contW * 0.96) / w));
+            seg.style.fontSize = cur + "px";
+            w = seg.getBoundingClientRect().width || cur * msg.length;
+          }
+          return w;
         }
         requestAnimationFrame(tick);
 
@@ -654,7 +662,7 @@
             return;
           }
           if (state.mode === "pause" || state.mode === "pattern") {
-            var segW = fillSingle(previewTrack, msg, 44);
+            var segW = fillSingle(previewTrack, msg, 44, preview.clientWidth);
             if (state.mode === "pause") startPause(previewScroll, segW, preview.clientWidth);
             else startPattern(previewScroll, segW, preview.clientWidth);
             return;
@@ -696,7 +704,7 @@
             return;
           }
           if (state.mode === "pause" || state.mode === "pattern") {
-            var segW = fillSingle(stageTrack, msg, fontPxForStage());
+            var segW = fillSingle(stageTrack, msg, fontPxForStage(), window.innerWidth);
             if (state.mode === "pause") startPause(stageScroll, segW, window.innerWidth);
             else startPattern(stageScroll, segW, window.innerWidth);
             return;
