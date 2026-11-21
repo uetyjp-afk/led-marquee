@@ -518,34 +518,37 @@
            (reduced-motion settings, fullscreen changes), so moving the
            transform from JS keeps the sign flowing everywhere. */
         function makeScroller(track) {
-          return { track: track, mode: "scroll", half: 0, offset: 0, active: false, segW: 0, contW: 0, phase: "in", x: 0, holdT: 0, blinkT: 0, visible: true };
+          return { track: track, mode: "scroll", half: 0, offset: 0, active: false, segW: 0, contW: 0, phase: "in", x: 0, holdT: 0, blinkT: 0, visible: true, fontPx: 44 };
         }
         var previewScroll = makeScroller(previewTrack);
         var stageScroll = makeScroller(stageTrack);
         var lastTs = 0;
         function stepScroll(s, dt) {
           if (!s.active) return;
+          /* speed is defined at the 44px preview size; scale by font size so
+             the big stage text moves at the same relative speed */
+          var sp = pxPerSec() * ((s.fontPx || 44) / 44);
           if (s.mode === "scroll") {
             if (!s.half) return;
-            s.offset = (s.offset + pxPerSec() * dt) % s.half;
+            s.offset = (s.offset + sp * dt) % s.half;
             s.track.style.transform = "translate3d(" + (-s.offset).toFixed(1) + "px, 0, 0)";
           } else if (s.mode === "pause") {
             var cx = (s.contW - s.segW) / 2;
             if (s.phase === "in") {
-              s.x -= pxPerSec() * dt;
+              s.x -= sp * dt;
               if (s.x <= cx) { s.x = cx; s.phase = "hold"; s.holdT = 0; }
             } else if (s.phase === "hold") {
               s.holdT += dt;
               if (s.holdT >= 2.5) s.phase = "out";
             } else {
-              s.x -= pxPerSec() * dt;
+              s.x -= sp * dt;
               if (s.x <= -s.segW) { s.x = s.contW; s.phase = "in"; }
             }
             s.track.style.transform = "translate3d(" + s.x.toFixed(1) + "px, 0, 0)";
           } else if (s.mode === "pattern") {
             var pcx = (s.contW - s.segW) / 2;
             if (s.phase === "in") {
-              s.x -= pxPerSec() * dt;
+              s.x -= sp * dt;
               if (s.x <= pcx) { s.x = pcx; s.phase = "hold"; s.holdT = 0; }
               s.track.style.transform = "translate3d(" + s.x.toFixed(1) + "px, 0, 0)";
             } else if (s.phase === "hold") {
@@ -561,7 +564,7 @@
                 if (s.blinkCount >= 6) { s.visible = true; s.track.style.visibility = "visible"; s.phase = "out"; }
               }
             } else {
-              s.x -= pxPerSec() * dt;
+              s.x -= sp * dt;
               if (s.x <= -s.segW) { s.x = s.contW; s.phase = "in"; }
               s.track.style.transform = "translate3d(" + s.x.toFixed(1) + "px, 0, 0)";
             }
@@ -581,24 +584,27 @@
           stepScroll(stageScroll, dt);
           requestAnimationFrame(tick);
         }
-        function startScroll(s, halfWidth) {
+        function startScroll(s, halfWidth, fontPx) {
           s.mode = "scroll";
+          s.fontPx = fontPx || 44;
           s.half = halfWidth;
           s.offset = halfWidth ? s.offset % halfWidth : 0;
           s.active = true;
           s.track.style.visibility = "visible";
           s.track.style.transform = "translate3d(" + (-s.offset).toFixed(1) + "px, 0, 0)";
         }
-        function startPause(s, segW, contW) {
+        function startPause(s, segW, contW, fontPx) {
           s.mode = "pause";
+          s.fontPx = fontPx || 44;
           s.segW = segW; s.contW = contW;
           s.phase = "in"; s.x = contW; s.holdT = 0;
           s.active = true;
           s.track.style.visibility = "visible";
           s.track.style.transform = "translate3d(" + s.x.toFixed(1) + "px, 0, 0)";
         }
-        function startPattern(s, segW, contW) {
+        function startPattern(s, segW, contW, fontPx) {
           s.mode = "pattern";
+          s.fontPx = fontPx || 44;
           s.segW = segW; s.contW = contW;
           s.phase = "in"; s.x = contW; s.holdT = 0; s.blinkT = 0; s.blinkCount = 0; s.visible = true;
           s.active = true;
@@ -705,8 +711,10 @@
           }
           if (state.mode === "pause" || state.mode === "pattern") {
             var segW = fillSingle(stageTrack, msg, fontPxForStage(), window.innerWidth);
-            if (state.mode === "pause") startPause(stageScroll, segW, window.innerWidth);
-            else startPattern(stageScroll, segW, window.innerWidth);
+            var effSeg = stageTrack.querySelector(".seg");
+            var effFont = effSeg ? (parseFloat(effSeg.style.fontSize) || fontPxForStage()) : fontPxForStage();
+            if (state.mode === "pause") startPause(stageScroll, segW, window.innerWidth, effFont);
+            else startPattern(stageScroll, segW, window.innerWidth, effFont);
             return;
           }
           var half = fillTrack(stageTrack, msg, window.innerWidth, fontPxForStage());
@@ -715,7 +723,7 @@
             segs[i].style.color = state.fg;
             applyGlow(segs[i]);
           }
-          startScroll(stageScroll, half);
+          startScroll(stageScroll, half, fontPxForStage());
         }
 
         function requestWake() {
