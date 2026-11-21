@@ -159,6 +159,8 @@
       }
 
       .seg-control { display: flex; background: var(--surface-2); border-radius: 10px; padding: 3px; gap: 3px; }
+      #modeSeg { flex-wrap: wrap; }
+      #modeSeg button { flex: 1 1 38%; }
       .seg-control button {
         flex: 1;
         border: none;
@@ -288,6 +290,8 @@
             <div class="row-head"><span class="row-name">流れ方</span></div>
             <div class="seg-control" id="modeSeg">
               <button type="button" data-mode="scroll" class="on">横に流れる</button>
+              <button type="button" data-mode="pause">真ん中で止まる</button>
+              <button type="button" data-mode="blink">点滅</button>
               <button type="button" data-mode="static">止まって表示</button>
             </div>
           </div>
@@ -317,6 +321,11 @@
               <button type="button" data-glow="on" class="on">光らせる</button>
               <button type="button" data-glow="off">光らせない</button>
             </div>
+          </div>
+          <div class="row" id="glowColorRow">
+            <div class="row-head"><span class="row-name">光の色（文字の周りの色）</span></div>
+            <div class="swatches" id="glowSwatches"></div>
+            <p class="sw-name" id="glowName"></p>
           </div>
         </div>
       </section>
@@ -353,7 +362,7 @@
         var SPEED_LABELS = ["とてもゆっくり", "ゆっくり", "ゆっくり", "ややゆっくり", "ふつう", "ふつう", "ややはやい", "はやい", "はやい", "とてもはやい"];
         var SIZE_LABELS = ["特小", "小", "やや小", "やや小", "中", "中", "やや大", "大", "大", "特大"];
 
-        var state = { mode: "scroll", speed: 5, size: 7, fg: FG[0].value, bg: BG[0].value, glow: true };
+        var state = { mode: "scroll", speed: 5, size: 7, fg: FG[0].value, bg: BG[0].value, glow: true, glowColor: "same" };
 
         var msgInput = document.getElementById("msgInput");
         var msgErr = document.getElementById("msgErr");
@@ -404,6 +413,39 @@
         buildSwatches(document.getElementById("fgSwatches"), FG, document.getElementById("fgName"), "fg");
         buildSwatches(document.getElementById("bgSwatches"), BG, document.getElementById("bgName"), "bg");
 
+        /* glow color: "same" = same as the text color, otherwise a fixed color */
+        (function buildGlowSwatches() {
+          var el = document.getElementById("glowSwatches");
+          var nameEl = document.getElementById("glowName");
+          var items = [{ name: "文字と同じ", value: "same", bg: "linear-gradient(135deg,#ffd21f 0%,#ff7ad9 50%,#2fd9ff 100%)" }]
+            .concat(FG.map(function (c) { return { name: c.name, value: c.value, bg: c.value }; }));
+          items.forEach(function (c) {
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = "sw" + (state.glowColor === c.value ? " on" : "");
+            b.style.background = c.bg;
+            b.setAttribute("aria-label", c.name);
+            b.addEventListener("click", function () {
+              state.glowColor = c.value;
+              nameEl.textContent = c.name;
+              var all = el.querySelectorAll(".sw");
+              for (var i = 0; i < all.length; i++) all[i].classList.remove("on");
+              b.classList.add("on");
+              renderPreview();
+            });
+            el.appendChild(b);
+          });
+          nameEl.textContent = "文字と同じ";
+        })();
+
+        function applyGlow(segEl) {
+          segEl.classList.remove("glow");
+          segEl.style.textShadow = "";
+          if (!state.glow) return;
+          if (state.glowColor === "same") segEl.classList.add("glow");
+          else segEl.style.textShadow = "0 0 18px " + state.glowColor + ", 0 0 46px " + state.glowColor;
+        }
+
         /* ---------- segmented controls ---------- */
         function seg(id, attr, fn) {
           var box = document.getElementById(id);
@@ -418,11 +460,12 @@
         }
         seg("modeSeg", "data-mode", function (v) {
           state.mode = v;
-          document.getElementById("speedRow").style.display = v === "scroll" ? "" : "none";
+          document.getElementById("speedRow").style.display = (v === "scroll" || v === "pause") ? "" : "none";
           renderPreview();
         });
         seg("glowSeg", "data-glow", function (v) {
           state.glow = v === "on";
+          document.getElementById("glowColorRow").style.display = state.glow ? "" : "none";
           renderPreview();
         });
 
@@ -474,15 +517,38 @@
            (reduced-motion settings, fullscreen changes), so moving the
            transform from JS keeps the sign flowing everywhere. */
         function makeScroller(track) {
-          return { track: track, half: 0, offset: 0, active: false };
+          return { track: track, mode: "scroll", half: 0, offset: 0, active: false, segW: 0, contW: 0, phase: "in", x: 0, holdT: 0, blinkT: 0, visible: true };
         }
         var previewScroll = makeScroller(previewTrack);
         var stageScroll = makeScroller(stageTrack);
         var lastTs = 0;
         function stepScroll(s, dt) {
-          if (!s.active || !s.half) return;
-          s.offset = (s.offset + pxPerSec() * dt) % s.half;
-          s.track.style.transform = "translate3d(" + (-s.offset).toFixed(1) + "px, 0, 0)";
+          if (!s.active) return;
+          if (s.mode === "scroll") {
+            if (!s.half) return;
+            s.offset = (s.offset + pxPerSec() * dt) % s.half;
+            s.track.style.transform = "translate3d(" + (-s.offset).toFixed(1) + "px, 0, 0)";
+          } else if (s.mode === "pause") {
+            var cx = (s.contW - s.segW) / 2;
+            if (s.phase === "in") {
+              s.x -= pxPerSec() * dt;
+              if (s.x <= cx) { s.x = cx; s.phase = "hold"; s.holdT = 0; }
+            } else if (s.phase === "hold") {
+              s.holdT += dt;
+              if (s.holdT >= 2.5) s.phase = "out";
+            } else {
+              s.x -= pxPerSec() * dt;
+              if (s.x <= -s.segW) { s.x = s.contW; s.phase = "in"; }
+            }
+            s.track.style.transform = "translate3d(" + s.x.toFixed(1) + "px, 0, 0)";
+          } else if (s.mode === "blink") {
+            s.blinkT += dt;
+            if (s.blinkT >= 0.55) {
+              s.blinkT = 0;
+              s.visible = !s.visible;
+              s.track.style.visibility = s.visible ? "visible" : "hidden";
+            }
+          }
         }
         function tick(ts) {
           var dt = lastTs ? Math.min((ts - lastTs) / 1000, 0.1) : 0;
@@ -492,15 +558,47 @@
           requestAnimationFrame(tick);
         }
         function startScroll(s, halfWidth) {
+          s.mode = "scroll";
           s.half = halfWidth;
           s.offset = halfWidth ? s.offset % halfWidth : 0;
           s.active = true;
+          s.track.style.visibility = "visible";
           s.track.style.transform = "translate3d(" + (-s.offset).toFixed(1) + "px, 0, 0)";
+        }
+        function startPause(s, segW, contW) {
+          s.mode = "pause";
+          s.segW = segW; s.contW = contW;
+          s.phase = "in"; s.x = contW; s.holdT = 0;
+          s.active = true;
+          s.track.style.visibility = "visible";
+          s.track.style.transform = "translate3d(" + s.x.toFixed(1) + "px, 0, 0)";
+        }
+        function startBlink(s) {
+          s.mode = "blink";
+          s.blinkT = 0; s.visible = true;
+          s.active = true;
+          s.track.style.visibility = "visible";
+          s.track.style.transform = "";
         }
         function stopScroll(s) {
           s.active = false;
           s.offset = 0;
           s.track.style.transform = "";
+          s.track.style.visibility = "visible";
+          s.visible = true;
+        }
+        /* one centered segment (pause / blink); returns its width */
+        function fillSingle(track, msg, fontPx) {
+          track.innerHTML = "";
+          var seg = document.createElement("span");
+          seg.className = "seg";
+          seg.textContent = msg;
+          seg.style.fontSize = fontPx + "px";
+          seg.style.paddingRight = "0";
+          seg.style.color = state.fg;
+          applyGlow(seg);
+          track.appendChild(seg);
+          return seg.getBoundingClientRect().width || fontPx * msg.length;
         }
         requestAnimationFrame(tick);
 
@@ -508,25 +606,31 @@
         function renderPreview() {
           var msg = text() || "（文字を入力してください）";
           preview.style.background = state.bg;
-          preview.classList.toggle("static", state.mode === "static");
-          if (state.mode === "static") {
+          preview.classList.toggle("static", state.mode === "static" || state.mode === "blink");
+          if (state.mode === "static" || state.mode === "blink") {
             previewTrack.innerHTML = "";
             var s = document.createElement("span");
-            s.className = "seg" + (state.glow ? " glow" : "");
+            s.className = "seg";
             s.textContent = msg;
             s.style.color = state.fg;
             s.style.fontSize = "30px";
             s.style.whiteSpace = "normal";
             s.style.textAlign = "center";
+            applyGlow(s);
             previewTrack.appendChild(s);
-            stopScroll(previewScroll);
+            if (state.mode === "blink") startBlink(previewScroll); else stopScroll(previewScroll);
+            return;
+          }
+          if (state.mode === "pause") {
+            var segW = fillSingle(previewTrack, msg, 44);
+            startPause(previewScroll, segW, preview.clientWidth);
             return;
           }
           var half = fillTrack(previewTrack, msg, preview.clientWidth, 44);
           var segs = previewTrack.querySelectorAll(".seg");
           for (var i = 0; i < segs.length; i++) {
             segs[i].style.color = state.fg;
-            segs[i].classList.toggle("glow", state.glow);
+            applyGlow(segs[i]);
           }
           startScroll(previewScroll, half);
         }
@@ -544,23 +648,30 @@
         function renderStage() {
           var msg = text();
           stage.style.background = state.bg;
-          stage.classList.toggle("static", state.mode === "static");
+          stage.classList.toggle("static", state.mode === "static" || state.mode === "blink");
           stopScroll(stageScroll);
-          if (state.mode === "static") {
+          if (state.mode === "static" || state.mode === "blink") {
             stageTrack.innerHTML = "";
             var s = document.createElement("span");
-            s.className = "seg" + (state.glow ? " glow" : "");
+            s.className = "seg";
             s.textContent = msg;
             s.style.color = state.fg;
             s.style.fontSize = fontPxForStage() + "px";
+            applyGlow(s);
             stageTrack.appendChild(s);
+            if (state.mode === "blink") startBlink(stageScroll);
+            return;
+          }
+          if (state.mode === "pause") {
+            var segW = fillSingle(stageTrack, msg, fontPxForStage());
+            startPause(stageScroll, segW, window.innerWidth);
             return;
           }
           var half = fillTrack(stageTrack, msg, window.innerWidth, fontPxForStage());
           var segs = stageTrack.querySelectorAll(".seg");
           for (var i = 0; i < segs.length; i++) {
             segs[i].style.color = state.fg;
-            segs[i].classList.toggle("glow", state.glow);
+            applyGlow(segs[i]);
           }
           startScroll(stageScroll, half);
         }

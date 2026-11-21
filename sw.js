@@ -1,4 +1,4 @@
-const CACHE_NAME = 'led-marquee-v1';
+const CACHE_NAME = 'led-marquee-v2';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE_NAME).then((c) => c.addAll(CORE)).then(() => self.skipWaiting()));
